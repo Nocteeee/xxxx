@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频时间轴</title>
+  <style>
+    .timeline-container {
+      width: 100%;
+      padding: 20px;
+      background: #2a2a2a;
+    }
+
+    #timeline {
+      width: 100%;
+      height: 120px;
+      background: #1a1a1a;
+      cursor: grab;
+    }
+
+    .controls {
+      margin-top: 10px;
+      color: white;
+    }
+
+    button {
+      background: #464646;
+      border: none;
+      color: white;
+      padding: 5px 15px;
+      cursor: pointer;
+      margin: 0 5px;
+    }
+
+    button:hover {
+      background: #666666;
+    }
+
+    button:disabled {
+      background: #363636;
+      color: #666666;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="timeline-container">
+    <canvas id="timeline"></canvas>
+    <div class="controls">
+      <button onclick="zoomIn()" id="zoomInBtn">放大</button>
+      <button onclick="zoomOut()" id="zoomOutBtn">缩小</button>
+      <span id="scale">缩放比例: 100%</span>
+      <span id="interval">刻度间隔: 1秒</span>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('timeline');
+    const ctx = canvas.getContext('2d');
+    const initialDuration = 7200; // 初始时长2小时
+    const basePixelsPerSecond = 50; // 基准每秒像素数
+
+    let scale;
+    let minScale; // 最小缩放比例
+    let offsetX = 0;
+    let isDragging = false;
+    let startX;
+    let scrollX;
+
+    const TIME_INTERVALS = [
+      1, 3, 5, 10, 30, 60, 180, 300, 600, 1800, 3600, 10800, 30000
+    ];
+
+    // 像素转换为时间
+    function pixelsToTime(pixels, scale) {
+      return pixels / (basePixelsPerSecond * scale);
+    }
+
+    // 时间转换为像素
+    function timeToPixels(time, scale) {
+      return time * basePixelsPerSecond * scale;
+    }
+
+    // 计算当前视图中的最大时间
+    function getMaxVisibleTime() {
+      return Math.ceil(pixelsToTime(canvas.width - offsetX, scale));
+    }
+
+    // 计算实际需要显示的总时长
+    function getTotalDuration() {
+      const visibleDuration = getMaxVisibleTime();
+      return Math.max(initialDuration, visibleDuration);
+    }
+
+    // 计算初始缩放比例，使初始时长占容器宽度的1/3
+    function calculateInitialScale() {
+      const containerWidth = canvas.width;
+      const targetWidth = containerWidth / 3;
+      return targetWidth / (initialDuration * basePixelsPerSecond);
+    }
+
+    // 更新缩放按钮状态
+    function updateZoomButtons() {
+      const zoomOutBtn = document.getElementById('zoomOutBtn');
+      const zoomInBtn = document.getElementById('zoomInBtn');
+      zoomOutBtn.disabled = scale <= minScale;
+      zoomInBtn.disabled = scale >= 5;
+    }
+
+    // 执行缩放
+    function performZoom(newScale, mouseX) {
+      // 计算鼠标位置相对于0点的时间
+      const timeAtZero = pixelsToTime(-offsetX, scale);
+
+      // 应用新的缩放比例
+      scale = newScale;
+
+      // 根据时间计算新的偏移量
+      offsetX = -timeToPixels(timeAtZero, scale);
+
+      // 确保不会超出边界
+      offsetX = constrainOffset(offsetX);
+
+      // 更新界面
+      document.getElementById('scale').textContent = `缩放比例: ${Math.round(scale * 100)}%`;
+      updateZoomButtons();
+      draw();
+    }
+
+    // 限制偏移量范围
+    function constrainOffset(offset) {
+      const minOffset = -getTotalDuration() * basePixelsPerSecond * scale + canvas.width;
+      return Math.min(0, Math.max(minOffset, offset));
+    }
+
+    // 时间格式化
+    function formatTime(seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+
+      if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+      return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // 获取刻度间隔
+    function getTimeInterval() {
+      const pixelsPerSecond = basePixelsPerSecond * scale;
+      const idealPixelsBetweenMarks = 100;
+      const secondsPerPixel = 1 / pixelsPerSecond;
+      const idealInterval = idealPixelsBetweenMarks * secondsPerPixel;
+
+      let bestInterval = TIME_INTERVALS[0];
+      let minDiff = Math.abs(Math.log(idealInterval) - Math.log(TIME_INTERVALS[0]));
+
+      for (let interval of TIME_INTERVALS) {
+        const diff = Math.abs(Math.log(idealInterval) - Math.log(interval));
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestInterval = interval;
+        }
+      }
+
+      return bestInterval;
+    }
+
+    // 获取主刻度间隔
+    function getMajorInterval(interval) {
+      const nextIndex = TIME_INTERVALS.indexOf(interval) + 1;
+      return nextIndex < TIME_INTERVALS.length ? TIME_INTERVALS[nextIndex] : interval * 2;
+    }
+
+    // 格式化间隔显示
+    function formatInterval(seconds) {
+      if (seconds >= 3600) {
+        return `${seconds / 3600}小时`;
+      }
+      if (seconds >= 60) {
+        return `${seconds / 60}分钟`;
+      }
+      return `${seconds}秒`;
+    }
+
+    // 设置canvas尺寸
+    function resizeCanvas() {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+
+      // 计算初始缩放比例和最小缩放比例
+      scale = calculateInitialScale();
+      minScale = scale;
+
+      updateZoomButtons();
+      draw();
+    }
+
+    // 初始化
+    function init() {
+      resizeCanvas();
+
+      canvas.addEventListener('mousedown', startDragging);
+      canvas.addEventListener('mousemove', drag);
+      canvas.addEventListener('mouseup', stopDragging);
+      canvas.addEventListener('mouseleave', stopDragging);
+      canvas.addEventListener('wheel', handleWheel);
+      window.addEventListener('resize', resizeCanvas);
+    }
+
+    // 绘制时间轴
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 背景
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const pixelsPerSecond = basePixelsPerSecond * scale;
+      const interval = getTimeInterval();
+      const majorInterval = getMajorInterval(interval);
+      const totalDuration = getTotalDuration();
+
+      document.getElementById('interval').textContent = `刻度间隔: ${formatInterval(interval)}`;
+
+      ctx.strokeStyle = '#464646';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '12px Arial';
+
+      // 绘制刻度和时间标签
+      for (let time = 0; time <= totalDuration; time += interval) {
+        const x = time * pixelsPerSecond + offsetX;
+
+        if (x < -50 || x > canvas.width + 50) continue;
+
+        const isMajor = time % majorInterval === 0;
+        const isMiddle = time % (interval * 2) === 0;
+
+        ctx.beginPath();
+        if (isMajor) {
+          ctx.moveTo(x, canvas.height - 40);
+          ctx.lineTo(x, canvas.height - 20);
+          ctx.stroke();
+
+          const timeText = formatTime(time);
+          const textWidth = ctx.measureText(timeText).width;
+          ctx.fillText(timeText, x - textWidth / 2, canvas.height - 5);
+        } else if (isMiddle) {
+          ctx.moveTo(x, canvas.height - 35);
+          ctx.lineTo(x, canvas.height - 20);
+          ctx.stroke();
+        } else {
+          ctx.moveTo(x, canvas.height - 30);
+          ctx.lineTo(x, canvas.height - 20);
+          ctx.stroke();
+        }
+      }
+
+      // 示例视频片段
+      ctx.fillStyle = '#3498db';
+      ctx.fillRect(offsetX + 100, 20, 200 * scale, 40);
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(offsetX + 400, 20, 150 * scale, 40);
+    }
+
+    // 开始拖动
+    function startDragging(e) {
+      isDragging = true;
+      startX = e.clientX;
+      scrollX = offsetX;
+      canvas.style.cursor = 'grabbing';
+    }
+
+    // 拖动中
+    function drag(e) {
+      if (!isDragging) return;
+
+      const dx = e.clientX - startX;
+      offsetX = constrainOffset(scrollX + dx);
+      draw();
+    }
+
+    // 停止拖动
+    function stopDragging() {
+      isDragging = false;
+      canvas.style.cursor = 'grab';
+    }
+
+    // 处理鼠标滚轮
+    function handleWheel(e) {
+      e.preventDefault();
+
+      const mouseX = e.offsetX;
+      const newScale = e.deltaY < 0
+        ? Math.min(scale * 1.1, 5)
+        : Math.max(scale / 1.1, minScale);
+
+      if (newScale !== scale) {
+        performZoom(newScale, mouseX);
+      }
+    }
+
+    // 放大
+    function zoomIn() {
+      const newScale = Math.min(scale * 1.2, 5);
+      if (newScale !== scale) {
+        performZoom(newScale, canvas.width / 2);
+      }
+    }
+
+    // 缩小
+    function zoomOut() {
+      const newScale = Math.max(scale / 1.2, minScale);
+      if (newScale !== scale) {
+        performZoom(newScale, canvas.width / 2);
+      }
+    }
+
+    init();
+  </script>
+</body>
+
+</html>
