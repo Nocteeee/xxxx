@@ -1,4 +1,4 @@
-import Timeline from "./backup/TimeLine";
+import Timeline from "./component/TimeLine";
 
 const App: React.FC = () => {
   return (

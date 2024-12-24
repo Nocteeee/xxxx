@@ -6,7 +6,7 @@ import {
   getTimeInterval,
   getMajorInterval,
 } from "../component/TimeLine/utils";
-import "../component/TimeLine/Timeline.css";
+// import "./Timeline.css";
 import { TimelineProps } from "@/types";
 
 const defaultProps = {
@@ -251,15 +251,7 @@ const Timeline: React.FC<TimelineProps> = (props) => {
   }, [draw]);
 
   return (
-    <div className="timeline-container" ref={containerRef}>
-      <canvas
-        ref={canvasRef}
-        onMouseDown={startDragging}
-        onMouseMove={drag}
-        onMouseUp={stopDragging}
-        onMouseLeave={stopDragging}
-        style={{ cursor: isDragging ? "grabbing" : "grab" }}
-      />
+    <>
       <div className="controls">
         <button
           onClick={() =>
@@ -289,7 +281,18 @@ const Timeline: React.FC<TimelineProps> = (props) => {
           {formatInterval(getTimeInterval(scale, basePixelsPerSecond))}
         </span>
       </div>
-    </div>
+      <div className="timeline-container" ref={containerRef}>
+        <canvas
+          ref={canvasRef}
+          onMouseDown={startDragging}
+          onMouseMove={drag}
+          onMouseUp={stopDragging}
+          onMouseLeave={stopDragging}
+          style={{ cursor: isDragging ? "grabbing" : "grab" }}
+        />
+
+      </div>
+    </>
   );
 };
 

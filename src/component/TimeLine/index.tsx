@@ -55,7 +55,6 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const timelineCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragClipRef = useRef<string | null>(null);
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -106,6 +105,7 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
     start: 0,
     end: initialDuration,
   });
+  const targetWidth = useRef(0);
 
   // 计算当前视图需要显示的总时长
   const getVisibleDuration = useCallback(() => {
@@ -118,9 +118,11 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
 
   const calculateInitialScale = useCallback(() => {
     if (!canvasRef.current) return 1;
-    const containerWidth = canvasRef.current.width;
-    const targetWidth = containerWidth / 3;
-    return targetWidth / (initialDuration * basePixelsPerSecond);
+    if (targetWidth.current === 0) {
+      const containerWidth = canvasRef.current.width;
+      targetWidth.current = containerWidth / 3;
+    }
+    return targetWidth.current / (initialDuration * basePixelsPerSecond);
   }, [initialDuration, basePixelsPerSecond]);
 
 
@@ -130,6 +132,7 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
 
     // 清除画布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -155,6 +158,7 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
     ctx.strokeStyle = '#464646';
     ctx.fillStyle = '#ffffff';
     ctx.font = '12px Arial';
+    console.log(firstMarkTime, lastMarkTime, interval);
 
     for (let time = firstMarkTime; time <= lastMarkTime; time += interval) {
       const x = timeToPixels(time, scale) + offsetX;
@@ -183,7 +187,17 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
         ctx.stroke();
       }
     }
-  }, [scale, offsetX, basePixelsPerSecond, timeToPixels, pixelsToTime]);
+
+
+  }, [
+    scale,
+    offsetX,
+    basePixelsPerSecond,
+    canvasRef.current?.width,
+    timeToPixels,
+    pixelsToTime,
+    getVisibleDuration,
+  ]);
 
   const constrainOffset = useCallback((offset: number, currentScale: number) => {
     if (!canvasRef.current) return offset;
@@ -196,18 +210,6 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
     setScale(newScale);
     setOffsetX(constrainOffset(-timeToPixels(timeAtZero, newScale), newScale));
   }, [scale, offsetX, pixelsToTime, timeToPixels, constrainOffset]);
-
-  // const handleWheel = useCallback((e: WheelEvent) => {
-  //   e.preventDefault();
-
-  //   const newScale = e.deltaY < 0
-  //     ? Math.min(scale * wheelZoomRatio, maxScale)
-  //     : Math.max(scale / wheelZoomRatio, minScale);
-
-  //   if (newScale !== scale) {
-  //     performZoom(newScale, (e as any).offsetX);
-  //   }
-  // }, [scale, minScale, maxScale, wheelZoomRatio, performZoom]);
 
   // 计算可见区域
   const calculateVisibleRange = useCallback(() => {
@@ -238,114 +240,9 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
   }, [state.clips, initialDuration, duration]);
 
 
-
-
-  // 修改时间刻度绘制函数，添加持续时间支持
-  const drawTimeline = useCallback(() => {
-    const canvas = timelineCanvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-
-    // 清除画布
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#232323';
-    ctx.fillRect(0, 0, width, height);
-
-    const pixelsPerSecond = basePixelsPerSecond * scale;
-    const secondsPerMajorTick = Math.pow(2, Math.floor(Math.log2(100 / pixelsPerSecond)));
-    const pixelsPerMajorTick = secondsPerMajorTick * pixelsPerSecond;
-
-    ctx.beginPath();
-    ctx.strokeStyle = '#666';
-    ctx.lineWidth = 1;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.font = '10px Arial';
-    ctx.fillStyle = '#fff';
-
-    const startTime = Math.floor(-offsetX / pixelsPerSecond);
-    const endTime = Math.min(
-      Math.ceil((width - offsetX) / pixelsPerSecond),
-      duration
-    );
-
-    for (let time = startTime; time <= endTime; time += secondsPerMajorTick) {
-      const x = time * pixelsPerSecond + offsetX;
-
-      // 绘制主刻度线
-      ctx.moveTo(x, height - 10);
-      ctx.lineTo(x, height);
-
-      // 绘制时间文本
-      const timeText = formatTime(time);
-      ctx.fillText(timeText, x, 2);
-
-      // 绘制次刻度线
-      for (let i = 1; i < 4; i++) {
-        const minorX = x + (pixelsPerMajorTick * i / 4);
-        if (minorX < width) {
-          ctx.moveTo(minorX, height - 5);
-          ctx.lineTo(minorX, height);
-        }
-      }
-    }
-
-    // 绘制持续时间标记
-    const durationX = duration * pixelsPerSecond + offsetX;
-    if (durationX >= 0 && durationX <= width) {
-      ctx.beginPath();
-      ctx.strokeStyle = '#e74c3c';
-      ctx.lineWidth = 2;
-      ctx.moveTo(durationX, 0);
-      ctx.lineTo(durationX, height);
-      ctx.stroke();
-    }
-
-    ctx.stroke();
-  }, [offsetX, scale, basePixelsPerSecond, duration, dimensions.width]);
-
   useEffect(() => {
     updateDuration();
   }, [updateDuration]);
-
-  // 更新尺寸
-  useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
-    };
-
-    updateDimensions();
-    window.addEventListener("resize", updateDimensions);
-    return () => window.removeEventListener("resize", updateDimensions);
-  }, []);
-
-  // 绘制时间刻度
-  useEffect(() => {
-    const canvas = timelineCanvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    drawTimeScale(
-      ctx,
-      dimensions.width,
-      SCALE_HEIGHT,
-      offsetX,
-      scale,
-      basePixelsPerSecond
-    );
-  }, [dimensions, offsetX, scale, basePixelsPerSecond]);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -380,36 +277,54 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
 
     const container = containerRef.current;
     canvasRef.current.width = container.clientWidth;
-    canvasRef.current.height = container.clientHeight;
+  }, []);
 
+  useEffect(() => {
     const newScale = calculateInitialScale();
     setScale(newScale);
     setMinScale(newScale);
-  }, [calculateInitialScale]);
+  }, []);
 
   useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    };
     handleResize();
-    window.addEventListener('resize', handleResize);
+    updateDimensions();
+    window.addEventListener('resize', () => {
+      handleResize();
+      updateDimensions();
+    });
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', () => {
+        handleResize();
+        updateDimensions();
+      });
     };
   }, [handleResize]);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!containerRef.current) return;
 
-    canvasRef.current.addEventListener('wheel', handleWheel);
+    containerRef.current.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
-      if (canvasRef.current) {
-        canvasRef.current.removeEventListener('wheel', handleWheel);
+      if (containerRef.current) {
+        containerRef.current.removeEventListener('wheel', handleWheel);
       }
     };
   }, [handleWheel]);
 
   useEffect(() => {
-    draw();
+    requestAnimationFrame(() => {
+      draw();
+    });
   }, [draw]);
 
 
@@ -652,7 +567,7 @@ export const Timeline: React.FC<TimelineProps> = (props) => {
       onMouseLeave={handleMouseUp}
     >
       <canvas
-        ref={timelineCanvasRef}
+        ref={canvasRef}
         width={dimensions.width}
         height={SCALE_HEIGHT}
         className="timeline-scale"
